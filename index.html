@@ -1022,6 +1022,7 @@ function loadState(){
     if(typeof d.spkVoice==="string") state.spkVoice=d.spkVoice;
     if(typeof d.spkRate==="number") state.spkRate=d.spkRate;
     if(typeof d.ttsEngine==="string") state.ttsEngine=d.ttsEngine;
+    if(typeof d.azVoice==="string") state.azVoice=d.azVoice;
   }catch(e){}
 }
 function saveState(){
@@ -1029,7 +1030,7 @@ function saveState(){
     localStorage.setItem(LS_KEY,JSON.stringify({
       checked:state.checked, read:state.read, last:state.last,
       openUnit:state.openUnit, contPos:state.contPos, font:state.font,
-      streak:state.streak, lastDate:state.lastDate, best:state.best, notes:state.notes, marks:state.marks, s321:state.s321, xzPos:state.xzPos, s920:state.s920, s920Help:state.s920Help, s920cf:state.s920cf, s235:state.s235, sys:state.sys, tmk:state.tmk, tnote:state.tnote, spkResume:state.spkResume, spkVoice:state.spkVoice, spkRate:state.spkRate, ttsEngine:state.ttsEngine
+      streak:state.streak, lastDate:state.lastDate, best:state.best, notes:state.notes, marks:state.marks, s321:state.s321, xzPos:state.xzPos, s920:state.s920, s920Help:state.s920Help, s920cf:state.s920cf, s235:state.s235, sys:state.sys, tmk:state.tmk, tnote:state.tnote, spkResume:state.spkResume, spkVoice:state.spkVoice, spkRate:state.spkRate, ttsEngine:state.ttsEngine, azVoice:state.azVoice
     }));
   }catch(e){}
 }
@@ -2406,7 +2407,7 @@ window.spkStopReset=function(){
 /* ============ 🎙️ 雲哲 · Azure 真人語音引擎（zh-TW-YunJheNeural · 台灣國語男聲） ============ */
 /* 透過 Cloudflare Worker 代理呼叫 Azure 文字轉語音，金鑰由伺服器端保管、不外洩。 */
 /* 若 Worker 未設定或連不上，會自動退回裝置內建語音，app 永遠不會因此中斷。          */
-var TTS_ENDPOINT = "https://azure-tts.spch321.workers.dev"; /* ← 改成你自己的 Worker 網址 */
+var TTS_ENDPOINT = "https://azure-tts-en.spch321.workers.dev"; /* ← 改成你自己的 Worker 網址 */
 var TTS_VOICE    = "en-US-Brian:DragonHDLatestNeural";      /* HD Brian — steady, warm Scripture reading. Standard fallback: en-US-BrianMultilingualNeural */
 var TTS_SIL_SENTENCE = 140;   /* 句號/問號/驚嘆號停頓(ms)，跟逗號差不多短 */
 var TTS_SIL_COMMA    = 140;   /* 逗號停頓(ms) */
@@ -2484,7 +2485,7 @@ function ttsNetFetch(piece,key){
   return fetch(TTS_ENDPOINT,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({ voice:TTS_VOICE, rate:yunRateAttr(), sil:TTS_SIL_SENTENCE, silc:TTS_SIL_COMMA, sile:TTS_SIL_ENUM, text:piece })
+    body:JSON.stringify({ voice:(state.azVoice||TTS_VOICE), rate:yunRateAttr(), sil:TTS_SIL_SENTENCE, silc:TTS_SIL_COMMA, sile:TTS_SIL_ENUM, text:piece })
   }).then(function(res){
     if(!res.ok) throw new Error("TTS HTTP "+res.status);
     return res.blob();
@@ -2494,7 +2495,7 @@ function ttsNetFetch(piece,key){
   });
 }
 function yunFetch(piece){
-  var key=yunRateAttr()+"|"+TTS_SIL_SENTENCE+"|"+TTS_SIL_COMMA+"|"+TTS_SIL_ENUM+"|"+piece;
+  var key=(state.azVoice||TTS_VOICE)+"|"+yunRateAttr()+"|"+TTS_SIL_SENTENCE+"|"+TTS_SIL_COMMA+"|"+TTS_SIL_ENUM+"|"+piece;
   if(yun.cache[key]) return Promise.resolve(yun.cache[key]);   /* 本次工作階段記憶體快取，最快 */
   return new Promise(function(resolve){
     ttsCacheGet(key,function(blob){
@@ -2698,7 +2699,16 @@ function renderSpkSheet(){
         +'<button class="spk-eng-b '+(yunEnabled()?"on":"")+'" onclick="spkSetEngine(\'yun\')">🎙️ Natural cloud voice</button>'
         +'<button class="spk-eng-b '+(!yunEnabled()?"on":"")+'" onclick="spkSetEngine(\'native\')">📱 Device built-in</button>'
       +'</div>'):"")
-      +(yunEnabled()?'<div class="spk-sub" style="margin-top:6px">Currently using the natural cloud voice. The list below is only a fallback if the cloud voice can’t connect.</div>':"")
+      +(yunEnabled()?('<div class="spk-sub" style="margin-top:10px;font-weight:800;color:var(--ink)">HD reading voice</div><div class="spk-list">'
+        +[["en-US-Brian:DragonHDLatestNeural","Brian","Male · warm & steady — ideal for Scripture"],
+          ["en-US-Ava:DragonHDLatestNeural","Ava","Female · warm & natural"],
+          ["en-US-Andrew:DragonHDLatestNeural","Andrew","Male · friendly, conversational"]]
+          .map(function(v){ var on=((state.azVoice||TTS_VOICE)===v[0]);
+            return '<button class="spk-row '+(on?"spk-sel":"")+'" onclick="azPickVoice(\''+v[0]+'\')">'
+              +'<span class="spk-rname">'+v[1]+'<span class="spk-rlang" style="display:block;font-weight:500">'+v[2]+'</span></span>'
+              +(on?'<span class="spk-rck">✓</span>':'')+'</button>'; }).join("")
+        +'</div>'):"")
+      +(yunEnabled()?'<div class="spk-sub" style="margin-top:6px">Currently using the natural cloud voice. The device list below is only a fallback if the cloud voice can’t connect.</div>':"")
       +'<div class="spk-list">'+rows+'</div>'
       +'<div class="spk-rate"><span>Speed</span><input type="range" min="0.6" max="1.3" step="0.02" value="'+rate+'" oninput="spkSetRate(this.value)"><span id="spk-rate-lbl">'+rate.toFixed(2)+'×</span></div>'
       +((yunEnabled()&&state.lesson)?('<div class="spk-dl"><button class="spk-dl-btn" id="spk-preload-btn" onclick="spkPreloadLesson()">⬇ Pre-download this lesson’s audio</button><div class="spk-dl-sub">Once downloaded, this lesson’s audio plays offline and uses no further data</div></div>'):"")
@@ -2707,13 +2717,14 @@ function renderSpkSheet(){
     +'</div></div>';
   host.style.display="block";
 }
+window.azPickVoice=function(n){ state.azVoice=n; saveState(); if(state.ttsEngine!=="yun" && typeof spkSetEngine==="function"){ spkSetEngine("yun"); } renderSpkSheet(); };
 window.renderSpkSheet=renderSpkSheet;
 
 /* ============ 小智 · AI 屬靈學習小幫手 ============ */
 /* 設定：預設使用 Anthropic API（Claude.ai 預覽可直接運作）。            */
 /* 正式部署到 LINE/網站時，請把 XZ_ENDPOINT 改成你自己的後端代理網址，   */
 /* 由伺服器端保管金鑰並轉發到 Anthropic（避免在前端暴露金鑰、並繞過 CORS）。*/
-const XZ_ENDPOINT="https://xiaozhi-proxy.spch321.workers.dev";
+const XZ_ENDPOINT="https://sage-ai-proxy.spch321.workers.dev";
 const XZ_MODEL="claude-sonnet-4-6";
 let chat={open:false,msgs:[],busy:false};
 
