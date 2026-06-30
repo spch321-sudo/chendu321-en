@@ -3,7 +3,7 @@
    - On update, notifies open pages with {type:"update-available"} so the
      in-app "A new version is ready" pill appears (page reloads to apply)
    - Bump CACHE on every deploy to ship a new version */
-var CACHE = "devotion-en-v5";
+var CACHE = "devotion-en-v6";
 
 var ASSETS = [
   "./",
