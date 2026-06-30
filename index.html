@@ -2407,7 +2407,7 @@ window.spkStopReset=function(){
 /* ============ 🎙️ 雲哲 · Azure 真人語音引擎（zh-TW-YunJheNeural · 台灣國語男聲） ============ */
 /* 透過 Cloudflare Worker 代理呼叫 Azure 文字轉語音，金鑰由伺服器端保管、不外洩。 */
 /* 若 Worker 未設定或連不上，會自動退回裝置內建語音，app 永遠不會因此中斷。          */
-var TTS_ENDPOINT = "https://azure-tts-en.spch321.workers.dev"; /* ← 改成你自己的 Worker 網址 */
+var TTS_ENDPOINT = "https://azure-tts.spch321.workers.dev"; /* ← 改成你自己的 Worker 網址 */
 var TTS_VOICE    = "en-US-Brian:DragonHDLatestNeural";      /* HD Brian — steady, warm Scripture reading. Standard fallback: en-US-BrianMultilingualNeural */
 var TTS_SIL_SENTENCE = 140;   /* 句號/問號/驚嘆號停頓(ms)，跟逗號差不多短 */
 var TTS_SIL_COMMA    = 140;   /* 逗號停頓(ms) */
