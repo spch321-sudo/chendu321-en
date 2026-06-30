@@ -2164,10 +2164,13 @@ function spkListVoices(){
 /* ===== 朗讀用：常用代號數字逐字讀（321→三二一，不要念成三百二十一） ===== */
 function spkJargon(s){
   s=String(s||"");
-  /* 3-2-1 / 3–2–1（含破折號與空格） → 三二一 */
-  s=s.replace(/3\s*[-\u2010-\u2015~]\s*2\s*[-\u2010-\u2015~]\s*1/g,"三二一");
+  /* 3-2-1 / 9-2-0 / 2-3-5（含破折號與空格）→ 英文逐字讀 */
+  var SEP="\\s*[-\\u2010-\\u2015~]\\s*";
+  s=s.replace(new RegExp("3"+SEP+"2"+SEP+"1","g"),"three two one");
+  s=s.replace(new RegExp("9"+SEP+"2"+SEP+"0","g"),"nine two zero");
+  s=s.replace(new RegExp("2"+SEP+"3"+SEP+"5","g"),"two three five");
   /* 整組數字（前後都不是數字才換），避免動到一般數字 */
-  var MAP={"321":"三二一","920":"九二零","235":"二三五"};
+  var MAP={"321":"three two one","920":"nine two zero","235":"two three five"};
   ["321","920","235"].forEach(function(g){
     var re=new RegExp("(^|[^0-9])"+g+"(?![0-9])","g");
     s=s.replace(re,function(m,p1){ return p1+MAP[g]; });
