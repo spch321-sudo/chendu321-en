@@ -167,6 +167,9 @@
   .spk-try{flex:1;border:1.5px solid var(--mint);background:var(--mintSoft);color:var(--mintDark);border-radius:14px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;}
   .spk-done{flex:1;border:none;background:var(--mint);color:#fff;border-radius:14px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;}
   .spk-dl{margin:14px 0 4px;}
+.bk-dl{margin:14px 20px 4px;}
+.bk-dl .spk-dl-btn,.bk-dl-btn{width:100%;border:1.5px solid var(--gold);background:var(--goldWash);color:#8a6d1f;border-radius:14px;padding:12px;font-size:14.5px;font-weight:700;font-family:inherit;cursor:pointer;}
+.bk-dl-sub{font-size:12px;color:var(--inkFaint);line-height:1.6;margin:7px 2px 0;text-align:center;}
   .spk-dl-btn{width:100%;border:1.5px solid var(--gold);background:var(--goldWash);color:#8a6d1f;border-radius:14px;padding:13px;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;}
   .spk-dl-btn:disabled{opacity:.7;cursor:default;}
   .spk-dl-sub{font-size:12.5px;color:var(--inkFaint);line-height:1.6;margin:8px 2px 0;text-align:center;}
@@ -1124,6 +1127,7 @@ function bookUnitHTML(){
   return '<div class="bk-reader">'
     +'<div class="bk-rtop"><button class="bk-back" onclick="openBook()">‹ Contents</button>'
       +'<div class="bk-rtop-r"><button class="rd-font" onclick="cycleFont()" aria-label="Adjust text size">A⁺</button><button class="bk-speak" id="bk-speak-btn" data-spk="book'+state.bookUnit+'" data-spk-label="Read aloud" onclick="bookSpeak()"><span class="spk-ic">🔊</span> <span class="spk-tx">Read aloud</span></button><button class="bk-stop" id="bk-stop-btn" onclick="bookStop()" style="display:none"><span class="bk-stop-ic">⏹</span> Stop</button></div></div>'
+    +((typeof yunEnabled==="function"&&yunEnabled())?'<div class="bk-dl"><button class="bk-dl-btn" id="bk-preload-btn" onclick="spkPreloadBook()">⬇ Pre-download this chapter’s audio</button><div class="bk-dl-sub">Once downloaded, this chapter plays offline and uses no further data</div></div>':"")
     +'<div class="bk-unit-eyebrow2">'+esc(U.eyebrow||"")+' · '+esc(u.num)+'</div>'
     +'<h2 class="bk-title">'+esc(U.title||u.title)+'</h2>'
     +verseHTML
@@ -1135,7 +1139,7 @@ function bookUnitHTML(){
 }
 window.bookStop=function(){ if(typeof spkStop==="function") spkStop(); if(typeof updateSpeakButtons==="function") updateSpeakButtons(); };
 function updateStopBar(){ var s=document.getElementById("bk-stop-btn"); if(s) s.style.display=(spk&&spk.active)?"inline-flex":"none"; }
-window.bookSpeak=function(){ var u=(BOOK||[])[state.bookUnit]; if(!u)return; spkToggle(bookSpeakText(u), "book"+state.bookUnit); };
+window.bookSpeak=function(){ var u=(BOOK||[])[state.bookUnit]; if(!u)return; spk.voiceOverride=null; spkToggle(bookSpeakText(u), "book"+state.bookUnit); };
 window.bookFn=function(n){
   var u=(BOOK||[])[state.bookUnit]; if(!u)return;
   var tx=(u.fns&&u.fns[n])||"";
@@ -2948,6 +2952,36 @@ window.spkPreloadLesson = function(){
       window.__spkPreloadBusy = false; disable(false);
       if(fail){ label("Downloaded " + ok + "/" + total + " (tap again later to finish)"); if(typeof uiToast==="function") uiToast("Mostly downloaded — a few parts can be retried later"); }
       else { label("✓ Whole lesson downloaded — plays offline"); if(typeof uiToast==="function") uiToast("Whole lesson downloaded — plays offline from now on"); }
+    }
+  }
+  pump();
+};
+/* ====== 預先下載整章書本語音（重用朗讀管線 → 鍵值與 bookSpeak 一致，播放必命中快取） ====== */
+window.spkPreloadBook = function(){
+  spk.voiceOverride = null;
+  var u = (BOOK||[])[state.bookUnit];
+  if(!u){ if(typeof uiToast==="function") uiToast("Open a chapter first, then download"); return; }
+  if(!yunEnabled()){ if(typeof uiToast==="function") uiToast("You\u2019re on the device voice, which already works offline"); return; }
+  if(window.__spkPreloadBusy) return;
+  var chunks = yunChunks(spkSanitize(bookSpeakText(u)));
+  if(!chunks.length){ if(typeof uiToast==="function") uiToast("This chapter has no audio to download"); return; }
+  window.__spkPreloadBusy = true;
+  var total = chunks.length, ok = 0, fail = 0, started = 0, running = 0, CONC = 3;
+  function btn(){ return document.getElementById("bk-preload-btn"); }
+  function label(t){ var b = btn(); if(b) b.textContent = t; }
+  function disable(d){ var b = btn(); if(b) b.disabled = !!d; }
+  disable(true); label("Downloading\u2026 0/" + total);
+  function pump(){
+    while(running < CONC && started < chunks.length){
+      var piece = chunks[started++]; running++;
+      yunFetch(piece).then(function(){ ok++; }, function(){ fail++; }).then(function(){
+        running--; label("Downloading\u2026 " + (ok + fail) + "/" + total); pump();
+      });
+    }
+    if(running === 0 && started >= chunks.length){
+      window.__spkPreloadBusy = false; disable(false);
+      if(fail){ label("Downloaded " + ok + "/" + total + " (tap again later to finish)"); if(typeof uiToast==="function") uiToast("Mostly downloaded \u2014 a few parts can be retried later"); }
+      else { label("\u2713 Whole chapter downloaded \u2014 plays offline"); if(typeof uiToast==="function") uiToast("Whole chapter downloaded \u2014 plays offline from now on"); }
     }
   }
   pump();
