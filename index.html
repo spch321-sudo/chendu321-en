@@ -2796,6 +2796,62 @@ window.ttsCacheClear=function(cb){ ttsDBopen(function(db){ if(!db) return cb&&cb
     r.onsuccess=function(){ yun.cache={}; if(typeof uiToast==="function") uiToast("Voice cache cleared"); cb&&cb(true); };
     r.onerror=function(){ cb&&cb(false); };
   }catch(e){ cb&&cb(false); } }); };
+/* ====== 背景播放：取原始 blob（快取優先） ====== */
+function yunFetchBlob(piece){
+  var key=(spk.voiceOverride||state.azVoice||TTS_VOICE)+"|"+yunRateAttr()+"|"+TTS_SIL_SENTENCE+"|"+TTS_SIL_COMMA+"|"+TTS_SIL_ENUM+"|"+piece;
+  return new Promise(function(resolve,reject){
+    ttsCacheGet(key,function(blob){
+      if(blob){ resolve(blob); return; }
+      fetch(TTS_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({voice:(spk.voiceOverride||state.azVoice||TTS_VOICE),rate:yunRateAttr(),sil:TTS_SIL_SENTENCE,silc:TTS_SIL_COMMA,sile:TTS_SIL_ENUM,text:piece})})
+        .then(function(res){ if(!res.ok) throw new Error("TTS "+res.status); return res.blob(); })
+        .then(function(b){ try{ ttsCachePut(key,b); }catch(e){} resolve(b); })
+        .catch(reject);
+    });
+  });
+}
+/* ====== 背景播放：整段串接成單一音檔（MP3 可位元組串接），播放中不需 JS 換段 →
+   切換 App / 鎖屏都能連續播放（像播一首歌）。若抓取失敗則退回逐段播放。 ====== */
+function yunPlayJoined(text, id, startIdx){
+  spkStop(); yunUnlock();
+  var my=++spk.token;
+  var chunks=yunChunks(spkSanitize(text));
+  var start=(startIdx&&startIdx>0&&startIdx<chunks.length)?startIdx:0;
+  var slice=chunks.slice(start);
+  if(!slice.length){ return; }
+  spk.queue=chunks; spk.idx=chunks.length; spk.active=true; spk.paused=false; spk.mode="yun"; spk.curId=id||"";
+  if(typeof spkMediaSession==="function") spkMediaSession("play");
+  if(typeof updateSpeakButtons==="function") updateSpeakButtons();
+  if(typeof uiToast==="function") uiToast("Preparing audio for background play\u2026");
+  var blobs=new Array(slice.length), done=0, next=0, running=0, CONC=4, failed=false;
+  function fallback(){ if(my===spk.token){ spk.token--; /* 讓 yunToggle 重新開始 */ if(typeof uiToast==="function") uiToast("Playing in segments (couldn\u2019t prepare offline file)"); yunToggleChunked(text,id,start); } }
+  function playJoined(){
+    if(my!==spk.token) return;
+    try{
+      var one=new Blob(blobs,{type:"audio/mpeg"});
+      var url=URL.createObjectURL(one);
+      var a=yunGetAudio(); a.onended=null; a.onerror=null; a.src=url;
+      a.onloadedmetadata=function(){ try{ if(navigator.mediaSession && navigator.mediaSession.setPositionState && isFinite(a.duration) && a.duration>0) navigator.mediaSession.setPositionState({duration:a.duration, position:0, playbackRate:a.playbackRate||1}); }catch(_){} };
+      a.onended=function(){ if(my===spk.token){ if(typeof maybeClearResumeOnComplete==="function") maybeClearResumeOnComplete(); yunStop(); } };
+      a.onerror=function(){ if(my===spk.token) yunStop(); };
+      var p=a.play(); if(p&&p.catch) p.catch(function(){});
+    }catch(e){ if(my===spk.token) yunStop(); }
+  }
+  function pump(){
+    if(failed) return;
+    while(running<CONC && next<slice.length){
+      (function(i){ running++;
+        yunFetchBlob(slice[i]).then(function(b){ blobs[i]=b; }, function(){ failed=true; }).then(function(){
+          running--; done++;
+          if(my!==spk.token) return;
+          if(failed){ fallback(); return; }
+          if(done>=slice.length){ playJoined(); } else { pump(); }
+        });
+      })(next++);
+    }
+  }
+  pump();
+}
+
 function ttsNetFetch(piece,key){
   return fetch(TTS_ENDPOINT,{
     method:"POST",
@@ -2833,6 +2889,10 @@ function yunToggle(text, id, startIdx){
     if(spk.paused) spkResumeCurrent(); else spkPauseCurrent();
     return;
   }
+  if(state.spkBgPlay) return yunPlayJoined(text, id, startIdx);   /* 背景播放模式：串接成單一音檔，切App/鎖屏不斷 */
+  return yunToggleChunked(text, id, startIdx);
+}
+function yunToggleChunked(text, id, startIdx){
   spkStop();                 /* 先停掉任何在播的（含內建） */
   yunUnlock();               /* ← 在點擊手勢內解鎖 iOS 音訊 */
   var my=++spk.token;
