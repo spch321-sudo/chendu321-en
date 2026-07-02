@@ -166,6 +166,14 @@
   .spk-g-f{background:#F7E6EE;color:#B5557F;}
   .spk-empty{font-size:14px;color:var(--inkSoft);line-height:1.7;padding:18px 6px;text-align:center;}
   .spk-rate{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--inkSoft);margin:4px 2px 14px;}
+  .spk-bg{display:flex;align-items:center;gap:12px;margin:14px 0 2px;padding:12px 4px 2px;border-top:1px solid var(--line);}
+  .spk-bg-l{flex:1;}
+  .spk-bg-t{font-weight:700;color:var(--mintDark);font-size:14.5px;}
+  .spk-bg-d{font-size:12px;color:var(--inkFaint);line-height:1.55;margin-top:3px;}
+  .spk-sw{flex-shrink:0;width:50px;height:30px;border-radius:999px;border:none;background:#cdd6d2;position:relative;cursor:pointer;transition:background .18s;padding:0;-webkit-appearance:none;}
+  .spk-sw.on{background:var(--mintDeep);}
+  .spk-sw-dot{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:transform .18s;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .spk-sw.on .spk-sw-dot{transform:translateX(20px);}
   .spk-rate input{flex:1;accent-color:var(--mint);}
   .spk-acts{display:flex;gap:10px;}
   .spk-try{flex:1;border:1.5px solid var(--mint);background:var(--mintSoft);color:var(--mintDark);border-radius:14px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;}
@@ -1306,6 +1314,7 @@ function loadState(){
     if(d.s321&&typeof d.s321==="object") state.s321=d.s321;
     if(d.xzPos&&typeof d.xzPos==="object") state.xzPos=d.xzPos;
     if(Array.isArray(d.xzFavs)) state.xzFavs=d.xzFavs;
+    if(typeof d.spkBgPlay==="boolean") state.spkBgPlay=d.spkBgPlay;
     if(d.spkResume&&typeof d.spkResume==="object") state.spkResume=d.spkResume;
     if(Array.isArray(d.s920)) state.s920=d.s920;
     if(typeof d.s920Help==="boolean") state.s920Help=d.s920Help;
@@ -1325,7 +1334,7 @@ function saveState(){
     localStorage.setItem(LS_KEY,JSON.stringify({
       checked:state.checked, read:state.read, last:state.last,
       openUnit:state.openUnit, contPos:state.contPos, font:state.font,
-      streak:state.streak, lastDate:state.lastDate, best:state.best, notes:state.notes, marks:state.marks, s321:state.s321, xzPos:state.xzPos, xzFavs:state.xzFavs, s920:state.s920, s920Help:state.s920Help, s920cf:state.s920cf, s235:state.s235, sys:state.sys, tmk:state.tmk, tnote:state.tnote, spkResume:state.spkResume, spkVoice:state.spkVoice, spkRate:state.spkRate, ttsEngine:state.ttsEngine, azVoice:state.azVoice
+      streak:state.streak, lastDate:state.lastDate, best:state.best, notes:state.notes, marks:state.marks, s321:state.s321, xzPos:state.xzPos, xzFavs:state.xzFavs, spkBgPlay:state.spkBgPlay, s920:state.s920, s920Help:state.s920Help, s920cf:state.s920cf, s235:state.s235, sys:state.sys, tmk:state.tmk, tnote:state.tnote, spkResume:state.spkResume, spkVoice:state.spkVoice, spkRate:state.spkRate, ttsEngine:state.ttsEngine, azVoice:state.azVoice
     }));
   }catch(e){}
 }
@@ -2616,6 +2625,7 @@ var _wakeLock=null;
 /* 朗讀時螢幕恆亮（Wake Lock）：播放/續播請求、暫停/停止釋放；不支援則自動略過。 */
 function spkWakeAcquire(){
   try{
+    if(state.spkBgPlay) return;   /* 背景播放模式：讓螢幕可關閉，音訊靠 Media Session 續播 */
     if(_wakeLock || !navigator.wakeLock) return;
     navigator.wakeLock.request("screen").then(function(wl){
       _wakeLock=wl;
@@ -3011,6 +3021,7 @@ window.spkPickVoice=function(name){ state.spkVoice=name||""; saveState(); render
 window.spkSetRate=function(v){ state.spkRate=Number(v)||1.0; saveState(); var lbl=document.getElementById("spk-rate-lbl"); if(lbl) lbl.textContent=(state.spkRate).toFixed(2)+"×"; };
 window.spkPreview=function(){ spkToggle("Peace to you. This is a voice preview. He must increase, but I must decrease. May God bless your reading today.","preview"); };
 window.spkSetEngine=function(e){ state.ttsEngine=(e==="native")?"native":"yun"; saveState(); if(typeof spkStop==="function") spkStop(); renderSpkSheet(); };
+window.spkToggleBg=function(){ state.spkBgPlay=!state.spkBgPlay; saveState(); try{ if(state.spkBgPlay){ if(typeof spkWakeRelease==="function") spkWakeRelease(); } else if(spk.active && !spk.paused && typeof spkWakeAcquire==="function"){ spkWakeAcquire(); } }catch(_){} if(typeof uiToast==="function") uiToast(state.spkBgPlay?"Background playback on — screen can rest while it plays":"Screen will stay awake while reading aloud"); renderSpkSheet(); };
 function renderSpkSheet(){
   var host=document.getElementById("spk-sheet"); if(!host) return;
   var vs=spkListVoices();
@@ -3050,6 +3061,7 @@ function renderSpkSheet(){
       +gridHtml
       +'<div class="spk-list">'+rows+'</div>'
       +'<div class="spk-rate"><span>Speed</span><input type="range" min="0.6" max="1.3" step="0.02" value="'+rate+'" oninput="spkSetRate(this.value)"><span id="spk-rate-lbl">'+rate.toFixed(2)+'×</span></div>'
+      +'<div class="spk-bg"><div class="spk-bg-l"><div class="spk-bg-t">Background playback</div><div class="spk-bg-d">Keep playing when the screen is off or you switch apps · lock-screen controls stay active</div></div><button class="spk-sw'+(state.spkBgPlay?' on':'')+'" role="switch" aria-checked="'+(state.spkBgPlay?'true':'false')+'" onclick="spkToggleBg()"><span class="spk-sw-dot"></span></button></div>'
       +((yunEnabled()&&state.lesson)?('<div class="spk-dl"><button class="spk-dl-btn" id="spk-preload-btn" onclick="spkPreloadLesson()">⬇ Pre-download this lesson’s audio</button><div class="spk-dl-sub">Once downloaded, this lesson’s audio plays offline and uses no further data</div></div>'):"")
       +'<div class="spk-acts"><button class="spk-try" onclick="spkPreview()">▶︎ Preview</button><button class="spk-done" onclick="closeSpkSettings()">Done</button></div>'
       +(yun.ready?'':'<div class="spk-tip">Want a more natural cloud voice? Follow the voice-setup guide to connect a cloud speech service.</div>')
