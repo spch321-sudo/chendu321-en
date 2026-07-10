@@ -3065,9 +3065,14 @@ function yunFetchBlob(piece){
     });
   });
 }
-/* ====== Background play: fetch the WHOLE lesson first, byte-concatenate into a single MP3
-   Blob, then play it once. No JS segment-swapping during playback, so the lock screen,
-   app switching and screen-off all keep playing straight through, like one song.
+/* ====== Background play (instant start + one single track):
+   1) Wait only for the FIRST small chunk, then start speaking immediately.
+   2) In parallel, fetch the whole lesson six-at-a-time and byte-concatenate it
+      into a single MP3 Blob.
+   3) The moment the full track is ready (usually a few seconds in, while the phone is
+      still in hand), swap the source exactly ONCE and seek to the current position.
+      From then on the whole lesson is one continuous track, so the lock screen,
+      screen-off and app switching all play straight through to the end.
    Every chunk is cached permanently in IndexedDB, so a second listen is instant/offline. ====== */
 function yunPlayJoined(text, id, startIdx){
   spkStop(); yunUnlock();
@@ -3079,51 +3084,85 @@ function yunPlayJoined(text, id, startIdx){
   spk.queue=chunks; spk.idx=start+1; spk.active=true; spk.paused=false; spk.mode="yun"; spk.curId=id||"";
   if(typeof spkMediaSession==="function") spkMediaSession("play");
   if(typeof updateSpeakButtons==="function") updateSpeakButtons();
-  if(typeof uiToast==="function") uiToast("Preparing the whole lesson as one track\u2026");
+  if(typeof uiToast==="function") uiToast("Starting now \u2014 the rest downloads while it plays\u2026");
+  if(typeof persistSpkResume==="function") persistSpkResume();
 
-  var blobs=new Array(slice.length), done=0, next=0, running=0, CONC=6, failed=false, lastPct=0;
-  function fallback(){
+  var a=yunGetAudio();
+  var phase="head", headEnded=false, headDur=0, fullURL=null, headURL=null, swapped=false;
+
+  function attachSeek(){
+    try{ var ms=navigator.mediaSession; if(!ms) return;
+      ms.setActionHandler("seekto", function(e){ try{ if(e.seekTime!=null) a.currentTime=e.seekTime; }catch(_){}});
+      ms.setActionHandler("seekforward", function(){ try{ a.currentTime=Math.min(a.duration||0, a.currentTime+15); }catch(_){}});
+      ms.setActionHandler("seekbackward", function(){ try{ a.currentTime=Math.max(0, a.currentTime-15); }catch(_){}});
+    }catch(_){}
+  }
+  function pos(){
+    try{ if(navigator.mediaSession && navigator.mediaSession.setPositionState && isFinite(a.duration) && a.duration>0)
+      navigator.mediaSession.setPositionState({duration:a.duration, position:Math.min(a.currentTime,a.duration), playbackRate:a.playbackRate||1}); }catch(_){}
+  }
+  function wire(){
+    a.onerror=function(){ if(my===spk.token) yunStop(); };
+    a.onloadedmetadata=function(){ if(my===spk.token) pos(); };
+    a.onended=function(){
+      if(my!==spk.token) return;
+      if(phase==="full"){ if(typeof maybeClearResumeOnComplete==="function") maybeClearResumeOnComplete(); yunStop(); return; }
+      headEnded=true;
+      if(isFinite(a.duration)) headDur=a.duration;
+      if(fullURL) swapToFull();
+    };
+  }
+  function swapToFull(){
+    if(my!==spk.token || swapped || !fullURL) return;
+    swapped=true; phase="full";
+    var at = headEnded ? (headDur||0) : (a.currentTime||0);
+    a.src=fullURL;
+    try{ if(headURL) URL.revokeObjectURL(headURL); }catch(_){}
+    headURL=null;
+    a.onloadedmetadata=function(){
+      if(my!==spk.token) return;
+      try{ if(at>0 && isFinite(a.duration) && at<a.duration) a.currentTime=at; }catch(_){}
+      pos();
+    };
+    var p=a.play(); if(p&&p.catch) p.catch(function(){});
+  }
+
+  /* (1) first chunk -> speak right away */
+  yunFetchBlob(slice[0]).then(function(b){
     if(my!==spk.token) return;
-    spk.token--;   /* let yunToggleChunked start cleanly */
+    headURL=URL.createObjectURL(new Blob([b],{type:"audio/mpeg"}));
+    wire(); attachSeek();
+    a.src=headURL;
+    if(slice.length===1){ swapped=true; phase="full"; }
+    var p=a.play(); if(p&&p.catch) p.catch(function(){});
+  }, function(){
+    if(my!==spk.token) return;
+    spk.token--;
     if(typeof uiToast==="function") uiToast("Playing in segments (couldn\u2019t prepare offline file)");
     yunToggleChunked(text,id,start);
+  });
+
+  /* (2) meanwhile: fetch the whole lesson, join it, swap once */
+  if(slice.length>1){
+    var res=new Array(slice.length), done=0, next=0, running=0, CONC=6, bad=false;
+    var pump=function(){
+      while(running<CONC && next<slice.length){
+        (function(i){ running++;
+          yunFetchBlob(slice[i]).then(function(b){ res[i]=b; }, function(){ bad=true; }).then(function(){
+            running--; done++;
+            if(my!==spk.token || bad) return;
+            if(done>=slice.length){
+              try{ fullURL=URL.createObjectURL(new Blob(res,{type:"audio/mpeg"})); }catch(_){ return; }
+              swapToFull();
+              return;
+            }
+            pump();
+          });
+        })(next++);
+      }
+    };
+    pump();
   }
-  function tick(){
-    done++;
-    var pct=Math.floor(done/slice.length*100);
-    if(pct>=lastPct+25 && pct<100){ lastPct=pct; if(typeof uiToast==="function") uiToast("Preparing audio\u2026 "+pct+"%"); }
-  }
-  function playJoined(){
-    if(my!==spk.token) return;
-    try{
-      var url=URL.createObjectURL(new Blob(blobs,{type:"audio/mpeg"}));
-      if(typeof persistSpkResume==="function") persistSpkResume();
-      var a=yunGetAudio(); a.onended=null; a.onerror=null; a.onloadedmetadata=null; a.src=url;
-      a.onloadedmetadata=function(){ try{ if(navigator.mediaSession && navigator.mediaSession.setPositionState && isFinite(a.duration) && a.duration>0) navigator.mediaSession.setPositionState({duration:a.duration, position:0, playbackRate:a.playbackRate||1}); }catch(_){} };
-      a.onended=function(){ if(my===spk.token){ if(typeof maybeClearResumeOnComplete==="function") maybeClearResumeOnComplete(); yunStop(); } };
-      a.onerror=function(){ if(my===spk.token) yunStop(); };
-      try{ var ms=navigator.mediaSession; if(ms){
-        ms.setActionHandler("seekto", function(e){ try{ if(e.seekTime!=null) a.currentTime=e.seekTime; }catch(_){}});
-        ms.setActionHandler("seekforward", function(){ try{ a.currentTime=Math.min(a.duration||0, a.currentTime+15); }catch(_){}});
-        ms.setActionHandler("seekbackward", function(){ try{ a.currentTime=Math.max(0, a.currentTime-15); }catch(_){}});
-      }}catch(_){}
-      var p=a.play(); if(p&&p.catch) p.catch(function(){});
-    }catch(e){ if(my===spk.token) yunStop(); }
-  }
-  function pump(){
-    if(failed) return;
-    while(running<CONC && next<slice.length){
-      (function(i){ running++;
-        yunFetchBlob(slice[i]).then(function(b){ blobs[i]=b; }, function(){ failed=true; }).then(function(){
-          running--; tick();
-          if(my!==spk.token) return;
-          if(failed){ fallback(); return; }
-          if(done>=slice.length){ playJoined(); } else { pump(); }
-        });
-      })(next++);
-    }
-  }
-  pump();
 }
 
 function ttsNetFetch(piece,key){
