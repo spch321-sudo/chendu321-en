@@ -224,6 +224,20 @@
   .cc-label{font-size:12px;opacity:.85;letter-spacing:1px;margin-bottom:3px;}
   .cc-title{font-size:16px;font-weight:700;line-height:1.4;}
   .cc-go{font-size:13px;opacity:.92;margin-top:6px;text-align:right;}
+  .cohort{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin:0 0 16px;box-shadow:0 2px 8px rgba(62,119,102,.07);}
+  .ch-head{font-size:15px;font-weight:800;color:var(--mintDark);margin-bottom:4px;}
+  .ch-sub{font-size:13px;color:var(--inkSoft);line-height:1.6;margin-bottom:8px;}
+  .ch-pill{display:inline-block;background:var(--goldWash);color:#8a6d1f;border-radius:999px;padding:3px 11px;font-size:12px;font-weight:700;}
+  .ch-now{font-size:16.5px;font-weight:800;color:var(--ink);margin:8px 0;line-height:1.5;}
+  .ch-go{width:100%;border:none;border-radius:11px;background:var(--mintDark);color:#fff;font-size:15px;font-weight:700;padding:11px;cursor:pointer;}
+  .ch-go.done{background:var(--mintWash);color:var(--mintDark);}
+  .ch-week{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+  .ch-wk{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;cursor:pointer;}
+  .ch-wk.now{border-color:var(--mintDark);background:var(--mintSoft);}
+  .ch-wk .d{white-space:nowrap;color:var(--inkSoft);font-size:12.5px;min-width:70px;}
+  .ch-wk .t{flex:1;}
+  .ch-wk .c{color:var(--mintDark);font-weight:800;}
+  .ch-next{font-size:12.5px;color:var(--inkSoft);margin-top:6px;}
   .overall{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
   .overall-top{display:flex;justify-content:space-between;font-size:13px;color:var(--inkSoft);margin-bottom:7px;font-weight:600;}
   .overall-bar{height:7px;background:var(--mintWash);border-radius:4px;overflow:hidden;}
@@ -1422,6 +1436,32 @@ function toggleDeep(k){
 }
 
 /* ============ VIEWS ============ */
+/* ── Morning Devotion pace: Kingdom 321 Online Fellowship cohort 7, from Mon 19 Oct 2026, Mon/Wed/Fri (Taipei time); same schedule as Living Out 321 ── */
+const COHORT={name:"Cohort 7",start:Date.UTC(2026,9,19)/86400000,days:[1,3,5]};
+function chDay(ts){return Math.floor(((ts||Date.now())+8*3600000)/86400000);}
+function chDow(d){return (d+4)%7;}
+function chIsClass(d){return COHORT.days.indexOf(chDow(d))>=0;}
+function chSession(d){let n=0;for(let x=COHORT.start;x<=d;x++)if(chIsClass(x))n++;return n;}
+function chDayOf(k){let n=0;for(let x=COHORT.start;;x++)if(chIsClass(x)&&++n===k)return x;}
+function chLabel(d){const t=new Date(d*86400000);return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][chDow(d)]+" "+(t.getUTCMonth()+1)+"/"+t.getUTCDate();}
+function cohortHTML(){
+  const ls=LESSONS.slice().sort((a,b)=>a.n-b.n), total=ls.length, today=chDay(), k=chSession(today);
+  const tt=l=>esc(l.title).split("\n").join(" ");
+  let h=`<div class="cohort"><div class="ch-head">👥 Morning Devotion pace</div><div class="ch-sub">Following Kingdom 321 Online Fellowship’s 7th cohort: from 19 October, one lesson every Monday, Wednesday and Friday.</div>`;
+  if(k===0){h+=`<div class="ch-pill">${COHORT.name} · starts ${chLabel(COHORT.start)}</div><div class="ch-now">First session: Lesson 1 · ${tt(ls[0])}</div>`;}
+  else if(k>total){h+=`<div class="ch-pill">${COHORT.name} has finished all lessons 🎉</div>`;}
+  else{
+    const l=ls[k-1], done=!!(state.read&&state.read[l.n]), cls=chIsClass(today);
+    h+=`<div class="ch-pill">${COHORT.name} · Session ${k} / ${total}</div><div class="ch-now">${cls?"Today":"Latest session"}: Lesson ${l.n} · ${tt(l)}${done?" ✓":""}</div>`;
+    h+=`<button class="ch-go${done?" done":""}" onclick="openLesson(${l.n})">${done?"Read it again":"Start this lesson"}</button><div class="ch-week">`;
+    const mon=today-((chDow(today)+6)%7);
+    COHORT.days.forEach(wd=>{const d=mon+(wd-1); if(d<COHORT.start)return; const kk=chSession(d); if(kk<1||kk>total)return; const x=ls[kk-1];
+      h+=`<div class="ch-wk${d===today?" now":""}" onclick="openLesson(${x.n})"><span class="d">${chLabel(d)}</span><span class="t">Lesson ${x.n} · ${tt(x)}</span><span class="c">${state.read&&state.read[x.n]?"✓":""}</span></div>`;});
+    h+=`</div>`;
+    if(!cls&&k<total) h+=`<div class="ch-next">Next session: ${chLabel(chDayOf(k+1))}</div>`;
+  }
+  return h+`</div>`;
+}
 function homeHTML(){
   const total=UNITS.reduce((a,u)=>a+(u.end-u.start+1),0);
   const readCount=Object.keys(state.read||{}).length;
@@ -1476,6 +1516,7 @@ function homeHTML(){
     <div class="s-bar" onclick="searchOpenOverlay()"><span class="s-bar-ico">🔍</span><span class="s-bar-tx">Search lessons, verses, themes…</span></div>
     ${strategyRowHTML()}
     <div class="book-entry" onclick="openBook()"><div class="be-ic">📖</div><div class="be-tx"><div class="be-t">The 321 Book</div><div class="be-d">The complete book · Ten units · Read in depth</div></div><span class="be-go">›</span></div>
+    ${cohortHTML()}
     <div class="list-label">Ten units · ${total} lessons in all</div>
     ${cards}
     <div class="home-tools">
